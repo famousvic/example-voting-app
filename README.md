@@ -65,6 +65,15 @@ The upstream project ships Dockerfiles that use unpinned base-image tags and run
 * Run every service as a non-root user: `vote` and `worker` as `app` (uid 10001), `result` as the built-in `node` user (uid 1000). Check with `docker run --rm vote id`, or `docker run --rm --entrypoint id result` for the others.
 * A non-root user cannot bind port 80, so `vote` now listens on 8000 and `result` on 3000. `docker-compose.yml` and `seed-data/generate-votes.sh` were updated to match. The URLs on your machine are unchanged: vote at 8080, result at 8081.
 * Not updated: `k8s-specifications/` still assumes port 80 for these services.
+## CI pipeline
+
+`.github/workflows/ci.yml` runs on every push. It builds `vote`, `result` and `worker` as a matrix, then pushes each image to GitHub Container Registry as `ghcr.io/<owner>/voting-<service>:<commit sha>`. Images are tagged with the commit SHA, never `latest`.
+
+* **Test:** the only test is a basic syntax check of the vote app (`python -m py_compile vote/app.py`). It catches syntax errors, not behaviour. There is no real test suite.
+* **Scan:** Trivy scans each image for HIGH and CRITICAL vulnerabilities. It is set to report only (`exit-code: '0'`) so findings do not fail the build. Node 18 and .NET 7 are past end of life, so `result` and `worker` report the most findings.
+* **Auth:** the push uses the `GITHUB_TOKEN` that GitHub creates for each run, so no secret is stored in the repository.
+* **Action version:** Trivy runs as `aquasecurity/trivy-action@v0.36.0`. Version 0.28.0 no longer runs because a dependency tag it needs has been removed upstream.
+* **Removed:** the three upstream `call-docker-build-*` workflows were deleted in favour of this one.
 ## Notes
 
 The voting application only accepts one vote per client browser. It does not register additional votes if a vote has already been submitted from a client.
