@@ -88,6 +88,15 @@ kubectl port-forward svc/result 8081:8081
 * The upstream app has a demo database login (`postgres` / `postgres`) written into its code, and the chart passes the same value. The database is only reachable from inside the cluster and stores data in an `emptyDir` volume, so votes are lost if the pod restarts. That is fine for a demo, not for production.
 * The vote and result pods run as non-root with `runAsNonRoot` set.
 * The Services are `ClusterIP`, so use `kubectl port-forward` to reach them.
+
+### Bad release and rollback
+
+I deployed a bad release on purpose with `helm upgrade voting charts/voting-app --set image.tag=this-tag-does-not-exist`, then restored the working one with `helm rollback`. Screenshots are in `docs/screenshots/`.
+
+* `bad-release.png`: the new `vote`, `result` and `worker` pods are `ImagePullBackOff`, while the old pods stay `Running`, so the app kept serving. Helm still marks the revision `deployed`, because it only checks that Kubernetes accepted the manifests, not that the pods came up. `helm upgrade --wait --atomic` would detect the failure and roll back automatically.
+* `rollback.png`: after `helm rollback voting 3` (revision 5, "Rollback to 3") all five pods are `1/1 Running`.
+* Revision 3 ("Rollback to 1") is an earlier practice rollback, which is why the history is not a straight line. Each rollback creates a new revision.
+* `voting-app` is the chart (the package); `voting` is the release (the installed copy).
 ## Notes
 
 The voting application only accepts one vote per client browser. It does not register additional votes if a vote has already been submitted from a client.
