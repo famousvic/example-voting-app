@@ -74,6 +74,20 @@ The upstream project ships Dockerfiles that use unpinned base-image tags and run
 * **Auth:** the push uses the `GITHUB_TOKEN` that GitHub creates for each run, so no secret is stored in the repository.
 * **Action version:** Trivy runs as `aquasecurity/trivy-action@v0.36.0`. Version 0.28.0 no longer runs because a dependency tag it needs has been removed upstream.
 * **Removed:** the three upstream `call-docker-build-*` workflows were deleted in favour of this one.
+## Kubernetes (Helm)
+
+`charts/voting-app/` is a Helm chart for the whole app (vote, result, worker, redis, postgres). Its images come from the CI pipeline above, tagged with a commit SHA set in `values.yaml`.
+
+```shell
+helm install voting charts/voting-app
+kubectl port-forward svc/vote 8080:8080
+kubectl port-forward svc/result 8081:8081
+```
+
+* The `redis` and `db` Services have fixed names because the vote, result and worker code connect to those exact hostnames. This means one release per namespace.
+* The upstream app has a demo database login (`postgres` / `postgres`) written into its code, and the chart passes the same value. The database is only reachable from inside the cluster and stores data in an `emptyDir` volume, so votes are lost if the pod restarts. That is fine for a demo, not for production.
+* The vote and result pods run as non-root with `runAsNonRoot` set.
+* The Services are `ClusterIP`, so use `kubectl port-forward` to reach them.
 ## Notes
 
 The voting application only accepts one vote per client browser. It does not register additional votes if a vote has already been submitted from a client.

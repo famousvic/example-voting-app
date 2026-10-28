@@ -1,0 +1,45 @@
+# The apps connect to the hostnames "redis" and "db", so these Services keep fixed names.
+# That means one release of this chart per namespace.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: {{ .Values.redis.image }}
+          ports:
+            - name: redis
+              containerPort: 6379
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+      volumes:
+        - name: redis-data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  type: ClusterIP
+  selector:
+    app: redis
+  ports:
+    - name: redis-service
+      port: 6379
+      targetPort: redis

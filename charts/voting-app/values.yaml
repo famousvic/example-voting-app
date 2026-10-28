@@ -1,0 +1,30 @@
+# Images built and pushed by .github/workflows/ci.yml, tagged with the commit SHA.
+image:
+  registry: ghcr.io/famousvic
+  tag: "bf9c504b57570e276157b9d910e1f5e1063f9ca0"
+  pullPolicy: IfNotPresent
+
+# Only needed if the ghcr.io packages are private, e.g. [{name: ghcr-pull}]
+imagePullSecrets: []
+
+vote:
+  replicas: 1
+  port: 8000
+  runAsUser: 10001
+
+result:
+  replicas: 1
+  port: 3000
+  runAsUser: 1000   # numeric, so Kubernetes can verify runAsNonRoot for the node user
+
+worker:
+  replicas: 1
+  runAsUser: 10001
+
+redis:
+  image: redis:alpine
+
+db:
+  image: postgres:15-alpine
+  user: postgres
+  password: postgres   # demo value, same as the compose file

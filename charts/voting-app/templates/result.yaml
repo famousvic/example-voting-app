@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: result
+  labels:
+    app: result
+spec:
+  replicas: {{ .Values.result.replicas }}
+  selector:
+    matchLabels:
+      app: result
+  template:
+    metadata:
+      labels:
+        app: result
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: {{ .Values.result.runAsUser }}
+      containers:
+        - name: result
+          image: {{ .Values.image.registry }}/voting-result:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: result
+              containerPort: {{ .Values.result.port }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: result
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: result
+  labels:
+    app: result
+spec:
+  type: ClusterIP
+  selector:
+    app: result
+  ports:
+    - name: result-service
+      port: 8081
+      targetPort: result
