@@ -20,7 +20,7 @@ Data flow: you vote in **vote**, the vote waits in **Redis**, the **worker** sav
 
 ## Architecture
 
-Diagram: `docs/architecture.png` (not made yet). The upstream project's own diagram is `architecture.excalidraw.png`.
+![Architecture](docs/architecture.png)
 
 ```
 Developer -> GitHub -> GitHub Actions (test, Trivy scan, build, push)
