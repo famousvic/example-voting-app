@@ -56,6 +56,15 @@ kubectl delete -f k8s-specifications/
 * A [Postgres](https://hub.docker.com/_/postgres/) database backed by a Docker volume
 * A [Node.js](/result) web app which shows the results of the voting in real time
 
+## Container hardening
+
+The upstream project ships Dockerfiles that use unpinned base-image tags and run as root. This fork changes that:
+
+* Added a `.dockerignore` to `vote/`, `result/` and `worker/` (excludes `.git`, `node_modules`, `*.md` and `.env` from the build context).
+* Pinned each base image by digest, keeping the same versions as upstream (Python 3.11, Node 18, .NET 7). Node 18 and .NET 7 are past end of life, so image scanners will likely report vulnerabilities in them.
+* Run every service as a non-root user: `vote` and `worker` as `app` (uid 10001), `result` as the built-in `node` user (uid 1000). Check with `docker run --rm vote id`, or `docker run --rm --entrypoint id result` for the others.
+* A non-root user cannot bind port 80, so `vote` now listens on 8000 and `result` on 3000. `docker-compose.yml` and `seed-data/generate-votes.sh` were updated to match. The URLs on your machine are unchanged: vote at 8080, result at 8081.
+* Not updated: `k8s-specifications/` still assumes port 80 for these services.
 ## Notes
 
 The voting application only accepts one vote per client browser. It does not register additional votes if a vote has already been submitted from a client.
