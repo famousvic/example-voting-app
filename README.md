@@ -59,7 +59,7 @@ Honest note: the upstream Dockerfiles used unpinned tags and ran as root. The pi
 
 ## 3. Kubernetes cluster
 
-I did not write or apply any Terraform, so there is no `terraform/` folder and no destroy-and-recreate proof. For the Helm deployment and the rollback demo I used the Kubernetes cluster built into Docker Desktop (one node, `desktop-control-plane`).
+I did not complete the Terraform step. I did not have a cloud account available, so the cluster was not created with Terraform and there is no destroy and recreate proof. For the Helm deployment and the rollback demo I used the Kubernetes cluster built into Docker Desktop.
 
 ## 4. CI pipeline (GitHub Actions)
 
