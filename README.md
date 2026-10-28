@@ -1,106 +1,124 @@
-# Example Voting App
+# Voting App: From Code to Automatic Deployment
 
-A simple distributed application running across multiple Docker containers.
+This is my fork of `dockersamples/example-voting-app`, prepared for the TS Academy DevOps Capstone 1 ("Ship It"). The goal is simple: one push builds the images, scans them, pushes them to a registry, and the app can be deployed to Kubernetes with Helm and rolled back when a release goes bad.
 
-## Getting started
+The original upstream README is kept as [README-upstream.md](README-upstream.md).
 
-Download [Docker Desktop](https://www.docker.com/products/docker-desktop) for Mac or Windows. [Docker Compose](https://docs.docker.com/compose) will be automatically installed. On Linux, make sure you have the latest version of [Compose](https://docs.docker.com/compose/install/).
+## What the app does
 
-This solution uses Python, Node.js, .NET, with Redis for messaging and Postgres for storage.
+A small voting app made of five parts.
 
-Run in this directory to build and run the app:
+| Part | What it does |
+|---|---|
+| vote | Web page where you cast a vote (Python, Flask) |
+| redis | Queue that holds votes until they are processed |
+| worker | Reads votes from Redis and saves them to the database (.NET) |
+| db | PostgreSQL database that stores the votes |
+| result | Web page that shows live totals (Node.js) |
 
-```shell
-docker compose up
-```
-
-The `vote` app will be running at [http://localhost:8080](http://localhost:8080), and the `results` will be at [http://localhost:8081](http://localhost:8081).
-
-Alternately, if you want to run it on a [Docker Swarm](https://docs.docker.com/engine/swarm/), first make sure you have a swarm. If you don't, run:
-
-```shell
-docker swarm init
-```
-
-Once you have your swarm, in this directory run:
-
-```shell
-docker stack deploy --compose-file docker-stack.yml vote
-```
-
-## Run the app in Kubernetes
-
-The folder k8s-specifications contains the YAML specifications of the Voting App's services.
-
-Run the following command to create the deployments and services. Note it will create these resources in your current namespace (`default` if you haven't changed it.)
-
-```shell
-kubectl create -f k8s-specifications/
-```
-
-The `vote` web app is then available on port 31000 on each host of the cluster, the `result` web app is available on port 31001.
-
-To remove them, run:
-
-```shell
-kubectl delete -f k8s-specifications/
-```
+Data flow: you vote in **vote**, the vote waits in **Redis**, the **worker** saves it to **PostgreSQL**, and **result** shows the totals.
 
 ## Architecture
 
-![Architecture diagram](architecture.excalidraw.png)
+Diagram: `docs/architecture.png` (not made yet). The upstream project's own diagram is `architecture.excalidraw.png`.
 
-* A front-end web app in [Python](/vote) which lets you vote between two options
-* A [Redis](https://hub.docker.com/_/redis/) which collects new votes
-* A [.NET](/worker/) worker which consumes votes and stores them in…
-* A [Postgres](https://hub.docker.com/_/postgres/) database backed by a Docker volume
-* A [Node.js](/result) web app which shows the results of the voting in real time
+```
+Developer -> GitHub -> GitHub Actions (test, Trivy scan, build, push)
+                              |
+                              v
+                      ghcr.io registry (images tagged with commit SHA)
+                              |
+                              v
+   Helm chart -> Kubernetes (Docker Desktop, namespace: default)
+                    vote, result, worker, redis, db
+```
 
-## Container hardening
+## 1. Run it locally
 
-The upstream project ships Dockerfiles that use unpinned base-image tags and run as root. This fork changes that:
+Requirements: Docker Desktop and Git.
 
-* Added a `.dockerignore` to `vote/`, `result/` and `worker/` (excludes `.git`, `node_modules`, `*.md` and `.env` from the build context).
-* Pinned each base image by digest, keeping the same versions as upstream (Python 3.11, Node 18, .NET 7). Node 18 and .NET 7 are past end of life, so image scanners will likely report vulnerabilities in them.
-* Run every service as a non-root user: `vote` and `worker` as `app` (uid 10001), `result` as the built-in `node` user (uid 1000). Check with `docker run --rm vote id`, or `docker run --rm --entrypoint id result` for the others.
-* A non-root user cannot bind port 80, so `vote` now listens on 8000 and `result` on 3000. `docker-compose.yml` and `seed-data/generate-votes.sh` were updated to match. The URLs on your machine are unchanged: vote at 8080, result at 8081.
-* Not updated: `k8s-specifications/` still assumes port 80 for these services.
-## CI pipeline
+1. Clone my fork: `git clone https://github.com/famousvic/example-voting-app.git`
+2. Go into the folder: `cd example-voting-app`
+3. Start everything: `docker compose up --build`
+4. Vote page: http://localhost:8080
+5. Result page: http://localhost:8081
+6. Stop it with Ctrl+C, then run `docker compose down`
 
-`.github/workflows/ci.yml` runs on every push. It builds `vote`, `result` and `worker` as a matrix, then pushes each image to GitHub Container Registry as `ghcr.io/<owner>/voting-<service>:<commit sha>`. Images are tagged with the commit SHA, never `latest`.
+## 2. Containers
 
-* **Test:** the only test is a basic syntax check of the vote app (`python -m py_compile vote/app.py`). It catches syntax errors, not behaviour. There is no real test suite.
-* **Scan:** Trivy scans each image for HIGH and CRITICAL vulnerabilities. It is set to report only (`exit-code: '0'`) so findings do not fail the build. Node 18 and .NET 7 are past end of life, so `result` and `worker` report the most findings.
-* **Auth:** the push uses the `GITHUB_TOKEN` that GitHub creates for each run, so no secret is stored in the repository.
-* **Action version:** Trivy runs as `aquasecurity/trivy-action@v0.36.0`. Version 0.28.0 no longer runs because a dependency tag it needs has been removed upstream.
-* **Removed:** the three upstream `call-docker-build-*` workflows were deleted in favour of this one.
-## Kubernetes (Helm)
+Each service has its own Dockerfile (`vote/`, `result/`, `worker/`).
 
-`charts/voting-app/` is a Helm chart for the whole app (vote, result, worker, redis, postgres). Its images come from the CI pipeline above, tagged with a commit SHA set in `values.yaml`.
+What I changed and checked:
 
-```shell
-helm install voting charts/voting-app
+- Base images are pinned by tag and digest (still Python 3.11, Node 18 and .NET 7, the same versions as upstream), never `latest`.
+- Every service runs as a non-root user: `app` (uid 10001) for vote and worker, the built-in `node` user (uid 1000) for result. I confirmed this by running `id` inside each container.
+- Because a non-root user cannot bind port 80, vote now listens on 8000 and result on 3000. `docker-compose.yml` and `seed-data/generate-votes.sh` were updated to match. The URLs on my machine are unchanged (8080 and 8081).
+- I added a `.dockerignore` to each service so `.git`, `node_modules`, markdown files and `.env` files stay out of the image.
+
+Honest note: the upstream Dockerfiles used unpinned tags and ran as root. The pinning, the non-root users and the port changes are my changes, made with the help of Claude Code, and can be seen in the git history (`git diff 63e9150 HEAD -- '*/Dockerfile'`).
+
+## 3. Kubernetes cluster
+
+I did not write or apply any Terraform, so there is no `terraform/` folder and no destroy-and-recreate proof. For the Helm deployment and the rollback demo I used the Kubernetes cluster built into Docker Desktop (one node, `desktop-control-plane`).
+
+## 4. CI pipeline (GitHub Actions)
+
+The workflow is `.github/workflows/ci.yml`. It runs on every push, once for each of vote, result and worker. I removed the three upstream `call-docker-build-*` workflows.
+
+Steps, in order:
+
+1. **Test**: a basic Python syntax check on the vote app (`py_compile`). This is a simple test, not a full test suite.
+2. **Build**: builds the Docker image.
+3. **Scan**: Trivy scans the image for HIGH and CRITICAL vulnerabilities. It is set to report only and not fail the build, because the Node 18 and .NET 7 base images are past end of life and show findings.
+4. **Login**: logs in to GitHub Container Registry with the `GITHUB_TOKEN` that GitHub creates for each run.
+5. **Push**: pushes the image tagged with the commit SHA, never `latest`.
+
+Images are published to `ghcr.io/famousvic/voting-vote`, `voting-result` and `voting-worker`.
+
+Things I fixed along the way: the first run failed because the Trivy action tag was missing its `v`, and the second failed because Trivy v0.28.0 depends on a `setup-trivy` tag that no longer exists. I moved to `aquasecurity/trivy-action@v0.36.0` and the later runs passed. The red runs stay in the Actions history.
+
+## 5. Deploy and roll back with Helm
+
+One chart in `charts/voting-app/`, one `values.yaml`. Image registry, tag, ports and user IDs are set in `values.yaml`. The chart is `voting-app`; the installed release is `voting`.
+
+Deploy:
+
+```
+helm upgrade --install voting charts/voting-app
+kubectl get pods
+```
+
+Open the app (stop `docker compose` first, or use other local ports):
+
+```
 kubectl port-forward svc/vote 8080:8080
 kubectl port-forward svc/result 8081:8081
 ```
 
-* The `redis` and `db` Services have fixed names because the vote, result and worker code connect to those exact hostnames. This means one release per namespace.
-* The upstream app has a demo database login (`postgres` / `postgres`) written into its code, and the chart passes the same value. The database is only reachable from inside the cluster and stores data in an `emptyDir` volume, so votes are lost if the pod restarts. That is fine for a demo, not for production.
-* The vote and result pods run as non-root with `runAsNonRoot` set.
-* The Services are `ClusterIP`, so use `kubectl port-forward` to reach them.
+The `redis` and `db` Services have fixed names because the app code connects to those exact hostnames, so only one release per namespace is possible. The Services are `ClusterIP`, so port-forward is used to reach them.
 
 ### Bad release and rollback
 
-I deployed a bad release on purpose with `helm upgrade voting charts/voting-app --set image.tag=this-tag-does-not-exist`, then restored the working one with `helm rollback`. Screenshots are in `docs/screenshots/`.
+1. Deploy with a wrong image tag: `helm upgrade voting charts/voting-app --set image.tag=this-tag-does-not-exist`
+2. The new pods fail with `ImagePullBackOff`. The old pods keep running, so the app stays up.
+3. Check the revisions: `helm history voting`
+4. Roll back: `helm rollback voting 3`
+5. All pods return to `1/1 Running`. Helm records the rollback as a new revision (5, "Rollback to 3") and keeps the broken one in the history.
 
-* `bad-release.png`: the new `vote`, `result` and `worker` pods are `ImagePullBackOff`, while the old pods stay `Running`, so the app kept serving. Helm still marks the revision `deployed`, because it only checks that Kubernetes accepted the manifests, not that the pods came up. `helm upgrade --wait --atomic` would detect the failure and roll back automatically.
-* `rollback.png`: after `helm rollback voting 3` (revision 5, "Rollback to 3") all five pods are `1/1 Running`.
-* Revision 3 ("Rollback to 1") is an earlier practice rollback, which is why the history is not a straight line. Each rollback creates a new revision.
-* `voting-app` is the chart (the package); `voting` is the release (the installed copy).
-## Notes
+What I learned: Helm marked the bad upgrade as "deployed" even though the pods were failing, because it only checks that Kubernetes accepted the files. Using `helm upgrade --wait --atomic` would detect the failure and roll back automatically.
 
-The voting application only accepts one vote per client browser. It does not register additional votes if a vote has already been submitted from a client.
+Evidence: `docs/screenshots/bad-release.png` and `docs/screenshots/rollback.png`. The history also contains one earlier practice rollback (revision 3, "Rollback to 1"), which is why it is not a straight line. Both screenshots were taken from a separate console window, not the VS Code terminal.
 
-This isn't an example of a properly architected perfectly designed distributed app... it's just a simple
-example of the various types of pieces and languages you might see (queues, persistent data, etc), and how to
-deal with them in Docker at a basic level.
+## Secrets
+
+No tokens or keys are stored in this repository. The registry login uses the `GITHUB_TOKEN` provided by GitHub Actions at run time.
+
+Known limitation: the upstream app has a demo database login (`postgres` / `postgres`) written into its code, and the compose file and the Helm chart (`values.yaml`) use the same demo value. The PostgreSQL pod is only reachable inside the cluster and uses temporary storage (`emptyDir`), so votes are lost if the pod restarts. This is fine for a demo and would need a proper secret and a persistent volume in production.
+
+## What I would improve next
+
+- Connect the pipeline so a push also runs the Helm deploy automatically (it does not today).
+- Write and apply Terraform for the cluster.
+- Use real tests instead of only a syntax check.
+- Move to supported base images (newer Node and .NET) so Trivy findings drop.
+- Update `k8s-specifications/`, which still assumes port 80 for vote and result.
